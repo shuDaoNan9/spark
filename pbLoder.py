@@ -13,7 +13,7 @@ with tf.Session() as sess:
         # print(sess.graph.as_graph_def().node)
         # 需要有一个初始化的过程
     # sess.run(tf.global_variables_initializer())
-    # 需要先复原变量 feature_embeddings
+    # 需要先复原变量，似乎写不写都一样，懒得打印就不写吧 
     print(sess.run('feature_embeddings:0'))
     print(sess.run('feature_bias:0'))
     print(sess.run('concat_bias:0'))
