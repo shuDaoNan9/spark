@@ -1,23 +1,25 @@
 import pandas as pd
 import tensorflow as tf
 import numpy as np
+pd.set_option('display.max_columns', 100)  # 设置最大显示列数
 
-# TRAIN_FILE = "F:\\python\\data\\cs\\part-00000-ca88c467-c550-43ec-9341-090c14a0dfca-c000.csv"
-# TEST_FILE = "F:/python/data/test2/part-00000-d9f02d78-e020-47a3-ad58-017e6f81620f-c000.csv"
-# model_path="F:/python/model/deepFM2J/"
-# rec_path="F:/python/data/predict/"
-# fdict_path = "F:/python/data/feature_dict"
-TRAIN_FILE = "/mnt/data/part-00000-ca88c467-c550-43ec-9341-090c14a0dfca-c000.csv"
-TEST_FILE = TRAIN_FILE
-model_path = "/mnt/model/"
-fdict_path = "/mnt/data/feature_dict"
-rec_path="/mnt/data/"
+TRAIN_FILE = "F:\\python\\data\\cs2\\part-00000-0920a0cb-4e95-49d4-9ddb-4d643095ffa9-c000.csv"
+model_path="F:/python/model/deepFM2J2/"
+rec_path="F:/python/data/predict/"
+fdict_path = "F:/python/data/feature_dict3"
+# TRAIN_FILE = "/mnt/data/part-00000-ca88c467-c550-43ec-9341-090c14a0dfca-c000.csv"
+# model_path = "/mnt/model/"
+# fdict_path = "/mnt/data/feature_dict"
+# rec_path="/mnt/data/"
 
 NUMERIC_COLS = ["penalty"]
 IGNORE_COLS = ["playNum", "clickNum","disNum","collectNum","rating","target","day"]
 topN=1000
 """模型参数"""
 dfm_params = {
+    "decay": 0.83,
+    "learn_rate_step":9850,  #喂入多少轮BATCH_SIZE后，更新一次学习率，一般设为：总样本数/BATCH_SIZE
+    "threads":6,
     "use_fm": True,
     "use_deep": True,
     "embedding_size": 10,
@@ -25,10 +27,10 @@ dfm_params = {
     "deep_layers": [32, 32],
     "dropout_deep": [0.5, 0.5, 0.5],
     "deep_layer_activation": tf.nn.relu,
-    "epoch": 30,
+    "epoch": 15,
     "batch_size": 1024,
-    "learning_rate": 0.01,
-    # "learning_rate":0.001,
+    "learning_rate": 0.05,
+    # "learning_rate":0.001,  0.1-1 0.01-10 0.002-10 0.001-10(然loss从2变3了，似乎是个别异常数据拉高的)
     "optimizer": "adam",
     "batch_norm": 1,
     "batch_norm_decay": 0.995,
@@ -39,32 +41,32 @@ dfm_params = {
 }
 
 dfTrain = pd.read_csv(TRAIN_FILE)
-dfTest = pd.read_csv(TRAIN_FILE,nrows=1000)
-print(dfTrain.head(5)[['uId','itemID',"playNum"]])
-print(dfTrain.tail(5)[['uId','itemID',"playNum"]])
+# dfTrain = pd.read_csv(TRAIN_FILE,nrows=1000000)#.tail(10000)
+print(dfTrain.head(5)[['uId','itemID',"playNum","rating"]])
+print(dfTrain.tail(5)[['uId','itemID',"playNum","rating"]])
 
-df = pd.concat([dfTrain,dfTest],sort=True)
-item_df=df[['itemID', "penalty", "genre","artistid"]].drop_duplicates().reset_index(drop=True)
-user_df=df[['uId', "country"]].drop_duplicates().reset_index(drop=True)
+data_rows=len(dfTrain)
+item_df=dfTrain[['itemID', "penalty", "genre","artistid"]].drop_duplicates().reset_index(drop=True)
+user_df=dfTrain[['uId', "country"]].drop_duplicates().reset_index(drop=True)
 
 feature_dict = {}
 total_feature = 0
-for col in df.columns:
+for col in dfTrain.columns:
     if col in IGNORE_COLS:
         continue
     elif col in NUMERIC_COLS:
         feature_dict[col] = total_feature
         total_feature += 1
     else:
-        unique_val = df[col].unique()
+        unique_val = dfTrain[col].unique()
         feature_dict[col] = dict(zip(unique_val,range(total_feature,len(unique_val) + total_feature)))
         total_feature += len(unique_val)
 print(total_feature)
 # print(feature_dict['artistid'][10002])
 # print(feature_dict['artistid'][234815])
 # print(feature_dict['uId'][102079130])
-with open(fdict_path, 'w+') as f:
-                f.write(str(feature_dict) )
+# with open(fdict_path, 'w+') as f:
+#                 f.write(str(feature_dict) )
 # with open(fdict_path, 'r') as f:
 #     print(dict(f.read()).keys() )
 
@@ -100,6 +102,7 @@ def norm_f_index(feat_dict, uid_country, f_index):
 """
 # print(dfTrain.columns)
 item_i = dfTrain[['itemID']].values.tolist()
+# train_y = dfTrain[["rating"]].values.tolist()
 train_y = dfTrain[['playNum']].values.tolist()
 train_feature_index = dfTrain.copy()
 train_feature_value = dfTrain.copy()
@@ -124,12 +127,20 @@ dfm_params['field_size'] = len(train_feature_index.columns)  # 37
 print(len(train_feature_index.columns))
 
 
+# def get_batch(train_feature_index,train_feature_value,train_y, batch_size):
+#     print(len(train_feature_index),len(train_y))
+#     input_queue = tf.train.slice_input_producer([train_feature_index,train_feature_value,train_y],num_epochs=1 , shuffle=False )
+#     i_batch, v_batch, label_batch = tf.train.batch(input_queue, batch_size=batch_size, num_threads=1, capacity=32, allow_smaller_final_batch=False)
+#     print(v_batch)
+#     return i_batch, v_batch,label_batch
 def get_batch(train_feature_index,train_feature_value,train_y, batch_size):
-    print(len(train_feature_index),len(train_y))
-    input_queue = tf.train.slice_input_producer([train_feature_index,train_feature_value,train_y], num_epochs=1, shuffle=False )
-    i_batch, v_batch, label_batch = tf.train.batch(input_queue, batch_size=batch_size, num_threads=1, capacity=32, allow_smaller_final_batch=False)
-    print(66666666666666666)
-    return i_batch, v_batch,label_batch
+    with tf.device('/cpu:0'):
+        print(len(train_feature_index),len(train_y))
+        input_queue = tf.train.slice_input_producer([train_feature_index,train_feature_value,train_y],num_epochs=dfm_params['epoch'], shuffle=True )
+        i_batch, v_batch, label_batch = tf.train.batch(input_queue, batch_size=batch_size, num_threads=dfm_params['threads'], capacity=32, allow_smaller_final_batch=False)
+        print(v_batch)
+        return i_batch, v_batch,label_batch
+
 
 
 """开始建立模型"""
@@ -223,8 +234,11 @@ outj = tf.add(tf.matmul(tf.concat([fm_first_order, fm_second_order, y_deep], axi
 outpre = tf.concat([outj, label],1)
 
 """loss and optimizer"""
+global_step = tf.Variable(0, trainable=False)
+learning_rate = tf.train.exponential_decay(dfm_params['learning_rate'], global_step,dfm_params['learn_rate_step'], dfm_params['decay'], staircase=True)
 loss = tf.losses.mean_squared_error( tf.reshape(label, (-1, 1)),outj) # epoch 99,loss is 3.3049653
-optimizer = tf.train.AdamOptimizer(learning_rate=dfm_params['learning_rate'], beta1=0.9, beta2=0.999,epsilon=1e-8).minimize(loss)
+optimizer = tf.train.AdamOptimizer(learning_rate=learning_rate, beta1=0.9, beta2=0.999,epsilon=1e-8).minimize(loss,global_step=global_step)
+# optimizer = tf.train.AdamOptimizer(learning_rate=dfm_params['learning_rate'], beta1=0.9, beta2=0.999,epsilon=1e-8).minimize(loss)
 
 # feature_index, feature_value, lable, dfm_param = get_data(dfm_params)
 i_batch, v_batch, label_batch = get_batch(train_feature_index,train_feature_value,train_y, dfm_params['batch_size'])
@@ -232,30 +246,64 @@ i_batch, v_batch, label_batch = get_batch(train_feature_index,train_feature_valu
 """train"""
 gpu_config = tf.ConfigProto()
 gpu_config.gpu_options.allow_growth = True
-gpu_options=tf.GPUOptions(per_process_gpu_memory_fraction=0.7)
+gpu_options=tf.GPUOptions(per_process_gpu_memory_fraction=0.65)
 config=tf.ConfigProto(gpu_options=gpu_options)
 
 with tf.Session(config=config) as sess:
+    writer = tf.summary.FileWriter("D:\\Anaconda3\\Scripts\\logs", sess.graph)
     sess.run(tf.global_variables_initializer())
     sess.run(tf.local_variables_initializer())
     # 开启协调器
     coord = tf.train.Coordinator()
     # 使用start_queue_runners 启动队列填充
     threads = tf.train.start_queue_runners(sess, coord)
-    batch = 0
+    batch= int(data_rows / dfm_params['batch_size'])
+    print(data_rows , dfm_params['batch_size'],batch)
+    batch_x_epochs = 0 # global_step
+    end_loss=0
+    tf.train.Saver().restore(sess, save_path=model_path)
+
     try:
-        while not coord.should_stop():
+        while not coord.should_stop(): # batch= int(data_rows / dfm_params['batch_size']) 9000
             # 获取训练用的每一个batch中batch_size个样本和标签
-            i, v,l = sess.run([i_batch,  v_batch, label_batch])
+            # i, v,l = sess.run([i_batch,  v_batch, label_batch])
             # print(i.shape)
-            for j in range(80):
-                sess.run(optimizer, feed_dict={feat_index: i,feat_value: v, label: l})
-                train_loss = loss.eval({feat_index: i,feat_value: v, label: l})
-                if batch%10==0 and (j==1 or j==79):
-                    print("batch %d, Training loss %g" % (batch, train_loss))
-            batch = batch + 1
+            # batch_loss=1
+            # for j in range(200):
+            #     if j<200 and batch_loss>0.01:
+            #         print(i)
+            #         sess.run(optimizer, feed_dict={feat_index: i,feat_value: v, label: l})
+            #         train_loss = loss.eval({feat_index: i,feat_value: v, label: l})
+            #         batch_loss=train_loss
+            #         if batch%10==0 and (j==1 or j==199 or batch_loss<0.01):
+            #             print("batch %d,  Training loss %g" % (batch,  train_loss))
+            #         if batch_loss<0.01:
+            #             batch_loss = 1
+            #             break
+            # batch = batch + 1
+
+            i, v, l = sess.run([i_batch, v_batch, label_batch])
+            # print(i.shape)
+            sess.run(optimizer, feed_dict={feat_index: i, feat_value: v, label: l})
+            train_loss = loss.eval({feat_index: i, feat_value: v, label: l})
+            end_loss=train_loss
+            if batch_x_epochs % 400 == 0:
+            # if batch_x_epochs % batch == 0:
+                learning_rate_val = sess.run(learning_rate)
+                global_step_val = sess.run(global_step)
+                print("batch_x_epochs %d,  Training loss %g,  global_step %g,  learning_rate %g" % (batch_x_epochs, train_loss, global_step_val,learning_rate_val))
+                tf.train.Saver().save(sess, save_path=model_path)
+                frozen_graph_def = tf.graph_util.convert_variables_to_constants(
+                    sess,
+                    sess.graph_def,
+                    ["feat_index", "feat_value", "add_out"])
+                # 保存图为pb文件
+                with open(model_path + 'model.pb', 'wb') as f:
+                    f.write(frozen_graph_def.SerializeToString())
+            batch_x_epochs = batch_x_epochs + 1
+
     except tf.errors.OutOfRangeError:  # num_epochs 次数用完会抛出此异常
-        print("---Train end---")
+        print("---Train end---", batch_x_epochs, end_loss)
         tf.train.Saver().save(sess, save_path=model_path)
     finally:
         # 协调器coord发出所有线程终止信号
@@ -266,10 +314,19 @@ with tf.Session(config=config) as sess:
     # 测试
     tf.train.Saver().restore(sess, save_path=model_path)
     i,predict_data = sess.run([feat_index, outj],
-                              feed_dict={feat_value: [[1, 1, 1, 0.2, 1, 1],    [1, 1, 1, 1, 1, 1],    [1, 1, 1, 0.721348, 1, 1],    [1, 1, 1, 1, 1, 1],    [1, 1, 1, 0.225091, 1, 1],
-                                                      [1, 1, 1, 0.352956, 1, 1], [1, 1, 1, 0.910239, 1, 1],                     [1, 1, 1, 0.265873, 1, 1], [1, 1, 1, 0.221151, 1, 1],                  [1, 1, 1, 0.389871, 1, 1]                   ],
-                                         feat_index: [[7389, 1476, 1439, 7388, 1444,0],    [7389, 1477, 1439, 7388, 1445,1],    [7389, 1478, 1439, 7388, 1445,2],    [7389, 1479, 1439, 7388, 1446,3],    [7389, 1480, 1439, 7388, 1447,4],
-                                                      [7441, 4741, 1439, 7388, 1450, 55],    [7441, 7387, 1439, 7388, 1450, 36],    [7441, 4973, 1439, 7388, 1452, 570],    [7441, 2479, 1439, 7388, 1444, 36],    [7441, 6560, 1439, 7388, 1444, 202]]}
+                              # feed_dict={feat_value: [[1, 1, 1, 0.2, 1, 1],    [1, 1, 1, 1, 1, 1],    [1, 1, 1, 0.721348, 1, 1],    [1, 1, 1, 1, 1, 1],    [1, 1, 1, 0.225091, 1, 1],
+                              #                         [1, 1, 1, 0.352956, 1, 1], [1, 1, 1, 0.910239, 1, 1],                     [1, 1, 1, 0.265873, 1, 1], [1, 1, 1, 0.221151, 1, 1],                  [1, 1, 1, 0.389871, 1, 1]                   ],
+                              #            feat_index: [[7389, 1476, 1439, 7388, 1444,0],    [7389, 1477, 1439, 7388, 1445,1],    [7389, 1478, 1439, 7388, 1445,2],    [7389, 1479, 1439, 7388, 1446,3],    [7389, 1480, 1439, 7388, 1447,4],
+                              #                         [7441, 4741, 1439, 7388, 1450, 55],    [7441, 7387, 1439, 7388, 1450, 36],    [7441, 4973, 1439, 7388, 1452, 570],    [7441, 2479, 1439, 7388, 1444, 36],    [7441, 6560, 1439, 7388, 1444, 202]]}
+                            feed_dict = {
+                                feat_value: [[1, 1,1,1,1,1,1,1, 1,1], [1, 1, 1, 1, 1, 1,1,1,1, 1],   [1, 1, 1, 1, 1, 1,1,1,1, 1], [1, 1, 1, 1, 1, 1,1,1,1, 1],  [1, 1, 1, 1, 1, 1,1,1,1, 1]],
+                                feat_index: [
+                                    [37799, 59510,555656,555660,555766,556125,558830, 558952,558996,558998],
+                                    [6527, 96509,555657,555672,555766,555767,558827, 558951,558996,559003],
+                                    [1910,141989,555658,555674,555766,556068,558819, 558949,558995,559003],
+                                    [1925,141989,555658,555660,555766,556192,558819, 558949,558995,559003],
+                                    [14238,141990,555659,555660,555766,555988,558846, 558955,558995,559003]]
+                                         }
                               )
     print("默认格式模型predict_data",predict_data)
 
