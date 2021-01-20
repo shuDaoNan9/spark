@@ -126,7 +126,7 @@ object test{
   }
 
 
-    def lr2(spark:SparkSession): Unit = {
+    def gbdtLr(spark:SparkSession): Unit = {
     import org.apache.spark.ml.feature.StringIndexer
     import org.apache.spark.ml.classification.LogisticRegression
     import org.apache.spark.ml.feature.FeatureHasher
